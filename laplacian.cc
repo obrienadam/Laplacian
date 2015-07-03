@@ -144,6 +144,8 @@ int main()
     	fout << endl;
     }
 
+    fout.close();
+
 	PetscFinalize();
 
 	return 0;
