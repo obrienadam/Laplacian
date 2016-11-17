@@ -1,152 +1,161 @@
 /**
-*  
-* This program solves the laplacian on a 2-D equidistant grid. It is meant
-* to be an example of using petsc.
-* 
-* Author: Adam O'Brien
-* Date  : 
-*
-**/
+ *  
+ * This program solves the laplacian on a 2-D equidistant grid. It is meant
+ * to be an example of using petsc.
+ * 
+ * Author: Adam O'Brien
+ * Date  : 
+ *
+ **/
 
 #include <iostream>
 #include <vector>
 #include <string>
 #include <algorithm>
 #include <fstream>
+#include <mpi.h>
 #include <petsc.h>
 
-typedef std::vector<double> FloatArray;
-typedef std::vector<int> IntArray;
-
-int main()
+int main(int argc, char *argv[])
 {
-	using namespace std;
+  using namespace std;
 
-	int i, j, l, nI, nJ, nNodes, rowNo, nIters;
-	double h, hSqr;
-	double phiBE, phiBW, phiBN, phiBS, phi;
-	string option, filename;
-	FloatArray coeffs;
-	IntArray jIndices;
-	Mat A;
-	Vec x, b;
-	KSP ksp;
-	PC pc;
-	ofstream fout;
+  int nI = 100, nJ = 100;
+  double h = 0.01, phiE = 0, phiW = 1, phiN = 0, phiS = 0;
 
-	cout << "Enter Number of Nodes in the X-direction : "; cin >> nI;
-	cout << "Enter Number of Nodes in the Y-direction : "; cin >> nJ;
-	cout << "Enter the Grid Node Spacing              : "; cin >> h;
-	cout << "Enter east boundary condition value 	  : "; cin >> phiBE;
-	cout << "Enter west boundary condition value 	  : "; cin >> phiBW;
-	cout << "Enter north boundary condition value 	  : "; cin >> phiBN;
-	cout << "Enter south boundary condition value 	  : "; cin >> phiBS;
-	nNodes = nI*nJ;
-	hSqr = h*h;
-	phiBE /= -hSqr;
-	phiBW /= -hSqr;
-	phiBN /= -hSqr;
-	phiBS /= -hSqr;
+  MPI_Init(&argc, &argv);
+  PetscInitializeNoArguments();
 
-	coeffs.resize(5);
-	jIndices.resize(5);
-
-	PetscInitializeNoArguments();
-
-	MatCreate(PETSC_COMM_SELF, &A);
-	MatSetSizes(A, PETSC_DECIDE, PETSC_DECIDE, nNodes, nNodes);
-	MatSetType(A, MATSEQAIJ);
-	MatSeqAIJSetPreallocation(A, 5, PETSC_NULL);
-	MatSetUp(A);
-
-	VecCreate(PETSC_COMM_SELF, &b);
-	VecSetSizes(b, PETSC_DECIDE, nNodes);
-    VecSetType(b, VECSTANDARD);
-    VecDuplicate(b, &x);
-    VecZeroEntries(b);
-
-	for(j = 0; j < nJ; ++j)
-	{
-		for(i = 0; i < nI; ++i)
-		{
-			coeffs[0] = -4./hSqr;
-			coeffs[1] = 1./hSqr;
-			coeffs[2] = 1./hSqr;
-			coeffs[3] = 1./hSqr;
-			coeffs[4] = 1./hSqr;
-
-			rowNo = j*nI + i;
-			jIndices[0] = rowNo;
-			jIndices[1] = rowNo + 1;
-			jIndices[2] = rowNo - 1;
-			jIndices[3] = rowNo + nI;
-			jIndices[4] = rowNo - nI;
-
-			if(i == 0)
-			{
-				jIndices[2] = -1;
-				VecSetValues(b, 1, &rowNo, &phiBW, ADD_VALUES);
-			}
-			if(i == nI - 1)
-			{
-				jIndices[1] = -1;
-				VecSetValues(b, 1, &rowNo, &phiBE, ADD_VALUES);
-			}
-			if(j == 0)
-			{
-				jIndices[4] = -1;
-				VecSetValues(b, 1, &rowNo, &phiBS, ADD_VALUES);
-			}
-			if(j == nJ - 1)
-			{
-				jIndices[3] = -1;
-				VecSetValues(b, 1, &rowNo, &phiBN, ADD_VALUES);
-			}
-
-			MatSetValues(A, 1, &rowNo, 5, jIndices.data(), coeffs.data(), INSERT_VALUES);
-		}
-	}
-
-	MatAssemblyBegin(A, MAT_FINAL_ASSEMBLY);
-	MatAssemblyEnd(A, MAT_FINAL_ASSEMBLY);
-
-	cout << "View matrix? (yes/no): "; cin >> option;
-	std::transform(option.begin(), option.end(), option.begin(), ::tolower);
-
-	if(option == "yes" || option == "y")
-		MatView(A, PETSC_VIEWER_STDOUT_SELF);
-
-	KSPCreate(PETSC_COMM_SELF, &ksp);
-	KSPSetOperators(ksp, A, A);
-    KSPGetPC(ksp, &pc);
-    PCSetType(pc, PCILU);
-    PCFactorSetFill(pc, 2);
-    KSPSetTolerances(ksp, PETSC_DEFAULT, PETSC_DEFAULT, PETSC_DEFAULT, PETSC_DEFAULT);
-    KSPSetType(ksp, KSPCG);
-    KSPSolve(ksp, b, x);
-    KSPGetIterationNumber(ksp, &nIters);
-
-    cout << "The solution converged in " << nIters << " iterations." << endl
-    	 << "Enter output filename : "; cin >> filename;
-
-    fout.open(filename.c_str());
-
-    for(j = 0; j < nJ; ++j)
+  for(int i = 0; i < argc; ++i)
     {
-    	for(i = 0; i < nI; ++i)
-    	{
-    		rowNo = j*nI + i;
-    		VecGetValues(x, 1, &rowNo, &phi);
+      string arg(argv[i]);
 
-    		fout << phi << ",";
-    	}
-
-    	fout << endl;
+      if(arg == "--n")
+	nI = nJ = stoi(argv[++i]);
+      else if(arg == "--h")
+	h = stod(argv[++i]);
+      else if(arg == "--phiE")
+	phiE = stod(argv[++i]);
+      else if(arg == "--phiW")
+	phiW = stod(argv[++i]);
+      else if(arg == "--phiN")
+	phiN = stod(argv[++i]);
+      else if(arg == "--phiS")
+	phiS = stod(argv[++i]);
     }
 
-    fout.close();
+  const int nNodes = nI*nJ;
+  const double hSqr = h*h;
+  const double coeffs[] = {1/hSqr, 1/hSqr, -4/hSqr, 1/hSqr, 1/hSqr};
 
-	PetscFinalize();
+  phiE /= -hSqr;
+  phiW /= -hSqr;
+  phiN /= -hSqr;
+  phiS /= -hSqr;
 
-	return 0;
+  Mat A;
+  Vec x, b;
+  MatCreateAIJ(MPI_COMM_WORLD, PETSC_DECIDE, PETSC_DECIDE, nNodes, nNodes, 5, NULL, 3, NULL, &A);
+  pair<int, int> range;
+  MatGetOwnershipRange(A, &range.first, &range.second);
+
+  
+
+  VecCreateMPI(MPI_COMM_WORLD, PETSC_DECIDE, nNodes, &b);
+  VecCreateMPI(MPI_COMM_WORLD, PETSC_DECIDE, nNodes, &x);
+  VecZeroEntries(b);
+
+  for(int j = 0; j < nJ; ++j)
+    for(int i = 0; i < nI; ++i)
+      {
+	int k = nI*j + i;
+
+	if(k < range.first)
+	  continue;
+	else if(k >= range.second)
+	  goto endloop;
+
+	int cols[] = {k - nI, k - 1, k, k + 1, k + nI};
+
+	if(i == 0)
+	 {
+	   VecSetValues(b, 1, &k, &phiW, ADD_VALUES);
+	   cols[1] = -1;
+	 }
+	if(i == nI - 1)
+	  {
+	    VecSetValues(b, 1, &k, &phiE, ADD_VALUES);
+	    cols[3] = -1;
+	  }
+	if(j == 0)
+	  {
+	    VecSetValues(b, 1, &k, &phiS, ADD_VALUES);
+	    cols[0] = -1;
+	  }
+	if(j == nJ - 1)
+	  {
+	    VecSetValues(b, 1, &k, &phiN, ADD_VALUES);
+	    cols[4] = -1;
+	  }
+	
+	MatSetValues(A, 1, &k, 5, cols, coeffs, INSERT_VALUES);
+      }
+  endloop:
+
+  MatAssemblyBegin(A, MAT_FINAL_ASSEMBLY);
+  MatAssemblyEnd(A, MAT_FINAL_ASSEMBLY);
+  VecAssemblyBegin(b);
+  VecAssemblyEnd(b);
+
+  KSP ksp;
+  PC pc;
+  int nIters;
+
+  KSPCreate(MPI_COMM_WORLD, &ksp);
+  KSPSetOperators(ksp, A, A);
+  KSPGetPC(ksp, &pc);
+  PCSetType(pc, PCSOR);
+  KSPSetTolerances(ksp, PETSC_DEFAULT, PETSC_DEFAULT, PETSC_DEFAULT, PETSC_DEFAULT);
+  KSPSetType(ksp, KSPCG);
+  KSPSolve(ksp, b, x);
+  KSPGetIterationNumber(ksp, &nIters);
+
+  VecAssemblyBegin(x);
+  VecAssemblyEnd(x);
+  
+  int rank;
+  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+
+  if(rank == 0)
+    {
+      ofstream fout;
+      fout.open("result.txt");
+
+    for(int j = 0; j < nJ; ++j)
+      {
+        for(int i = 0; i < nI; ++i)
+    	  {
+	    int k = j*nI + i;
+	    if(k < range.first)
+	      continue;
+	    else if(k >= range.second)
+	      goto endloop2;
+
+	    double phi;
+	    VecGetValues(x, 1, &k, &phi);
+
+	    fout << phi << ",";
+    	  }
+      
+        fout << endl;
+      }
+      endloop2:
+      fout.close();
+    }
+
+  MatDestroy(&A);
+  PetscFinalize();
+  MPI_Finalize();
+
+  return 0;
 }

@@ -1,3 +1,3 @@
 #!/usr/bin/env bash
 
-g++ laplacian.cc -o laplacian -lpetsc -Wl,-rpath=/usr/local/lib
+mpic++ laplacian.cc -o laplacian -lmpi -lpetsc -std=c++11 -O3 -ffast-math -Wl,-rpath=/usr/local/lib
